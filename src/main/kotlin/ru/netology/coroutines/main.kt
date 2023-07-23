@@ -5,9 +5,11 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
 import okhttp3.*
 import okhttp3.logging.HttpLoggingInterceptor
+import ru.netology.coroutines.dto.Author
 import ru.netology.coroutines.dto.Comment
 import ru.netology.coroutines.dto.Post
 import ru.netology.coroutines.dto.PostWithComments
+import ru.netology.coroutines.dto.PostsWithAuthorsAndComments
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.EmptyCoroutineContext
@@ -138,16 +140,13 @@ fun main() {
             try {
                 val posts = getPosts(client)
                     .map { post ->
-                        val authorName = getAuthorForPosts(client, post.id)
                         async {
-                            Post(post.id, author = authorName, post.authorAvatar, post.content, post.published, post.likedByMe)
+                            PostsWithAuthorsAndComments(post, getComments(client, post.id))
                         }
-                        val comment = getComment(client, post.id)
+                    }.awaitAll()
+                    .map {
                         async {
-                            Comment(comment.id, author = comment.author, comment.authorAvatar, comment.content, comment.published, comment.likedByMe, comment.likes)
-                        }
-                        async {
-                            PostWithComments(post, getComments(client, post.id))
+                            PostsWithAuthorsAndComments(it.post, it.comments, getAuthor(client, it.getAuthorsId()))
                         }
                     }.awaitAll()
                 println(posts)
@@ -192,8 +191,19 @@ suspend fun <T> makeRequest(url: String, client: OkHttpClient, typeToken: TypeTo
     }
 
 
-suspend fun getAuthorForPosts(client: OkHttpClient, authorId: Long): String =
-    makeRequest("$BASE_URL/api/slow/authors/$authorId", client, object : TypeToken<String>() {})
+
+suspend fun getAuthor(client: OkHttpClient, ids: List<Long>): Map<Long, Author> {
+    val result: MutableList<Author> = mutableListOf()
+    with(CoroutineScope(EmptyCoroutineContext)) {
+        ids.map { id ->
+            async {
+                result.add(makeRequest("$BASE_URL/api/slow/authors/$id", client, object : TypeToken<Author>() {}))
+            }
+        }.awaitAll()
+    }
+    return result.associateBy { it.id }
+}
+
 
 suspend fun getPosts(client: OkHttpClient): List<Post> =
     makeRequest("$BASE_URL/api/slow/posts", client, object : TypeToken<List<Post>>() {})
@@ -201,5 +211,5 @@ suspend fun getPosts(client: OkHttpClient): List<Post> =
 suspend fun getComments(client: OkHttpClient, id: Long): List<Comment> =
     makeRequest("$BASE_URL/api/slow/posts/$id/comments", client, object : TypeToken<List<Comment>>() {})
 
-suspend fun getComment(client: OkHttpClient, postId: Long): Comment =
+suspend fun getCommentAuthor(client: OkHttpClient, postId: Long): Comment =
     makeRequest("$BASE_URL/api/slow/posts/$postId/comments", client, object: TypeToken<Comment>() {})
