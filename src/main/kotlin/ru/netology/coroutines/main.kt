@@ -7,6 +7,7 @@ import okhttp3.*
 import okhttp3.logging.HttpLoggingInterceptor
 import ru.netology.coroutines.dto.Author
 import ru.netology.coroutines.dto.Comment
+import ru.netology.coroutines.dto.CommentWithAuthor
 import ru.netology.coroutines.dto.Post
 import ru.netology.coroutines.dto.PostWithComments
 import ru.netology.coroutines.dto.PostsWithAuthorsAndComments
@@ -134,6 +135,31 @@ private val client = OkHttpClient.Builder()
     .connectTimeout(30, TimeUnit.SECONDS)
     .build()
 
+//fun main() {
+//    with(CoroutineScope(EmptyCoroutineContext)) {
+//        launch {
+//            try {
+//                val posts = getPosts(client)
+//                    .map { post ->
+//                        async {
+//                            PostsWithAuthorsAndComments(post, getComments(client, post.id))
+//                        }
+//                    }.awaitAll()
+//                    .map {
+//                        async {
+//                            PostsWithAuthorsAndComments(it.post, it.comments, getAuthor(client, it.getAuthorsId()))
+//                        }
+//                    }.awaitAll()
+//                println(posts)
+//
+//            } catch (e: Exception) {
+//                e.printStackTrace()
+//            }
+//        }
+//    }
+//    Thread.sleep(30_000L)
+//}
+
 fun main() {
     with(CoroutineScope(EmptyCoroutineContext)) {
         launch {
@@ -141,23 +167,25 @@ fun main() {
                 val posts = getPosts(client)
                     .map { post ->
                         async {
-                            PostsWithAuthorsAndComments(post, getComments(client, post.id))
+                            val authors = getPostAuthor(client, post.id)
+                            val comments = getComments(client, post.id)
+                                .map { comment ->
+                                    async {
+                                        CommentWithAuthor(comment, getCommentAuthor(client, comment.authorId))
+                                    }
+                                }.awaitAll()
+                            PostsWithAuthorsAndComments(post, comments, authors)
                         }
                     }.awaitAll()
-                    .map {
-                        async {
-                            PostsWithAuthorsAndComments(it.post, it.comments, getAuthor(client, it.getAuthorsId()))
-                        }
-                    }.awaitAll()
-                println(posts)
-
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
     }
-    Thread.sleep(30_000L)
 }
+
+
+
 
 suspend fun OkHttpClient.apiCall(url: String): Response {
     return suspendCoroutine { continuation ->
@@ -192,24 +220,27 @@ suspend fun <T> makeRequest(url: String, client: OkHttpClient, typeToken: TypeTo
 
 
 
-suspend fun getAuthor(client: OkHttpClient, ids: List<Long>): Map<Long, Author> {
-    val result: MutableList<Author> = mutableListOf()
-    with(CoroutineScope(EmptyCoroutineContext)) {
-        ids.map { id ->
-            async {
-                result.add(makeRequest("$BASE_URL/api/slow/authors/$id", client, object : TypeToken<Author>() {}))
-            }
-        }.awaitAll()
-    }
-    return result.associateBy { it.id }
-}
+//suspend fun getAuthor(client: OkHttpClient, ids: List<Long>): Map<Long, Author> {
+//    val result: MutableList<Author> = mutableListOf()
+//    with(CoroutineScope(EmptyCoroutineContext)) {
+//        ids.map { id ->
+//            async {
+//                result.add(makeRequest("$BASE_URL/api/slow/authors/$id", client, object : TypeToken<Author>() {}))
+//            }
+//        }.awaitAll()
+//    }
+//    return result.associateBy { it.id }
+//}
 
 
 suspend fun getPosts(client: OkHttpClient): List<Post> =
     makeRequest("$BASE_URL/api/slow/posts", client, object : TypeToken<List<Post>>() {})
 
-suspend fun getComments(client: OkHttpClient, id: Long): List<Comment> =
-    makeRequest("$BASE_URL/api/slow/posts/$id/comments", client, object : TypeToken<List<Comment>>() {})
+suspend fun getComments(client: OkHttpClient, postId: Long): List<Comment> =
+    makeRequest("$BASE_URL/api/slow/posts/$postId/comments", client, object : TypeToken<List<Comment>>() {})
 
-suspend fun getCommentAuthor(client: OkHttpClient, postId: Long): Comment =
-    makeRequest("$BASE_URL/api/slow/posts/$postId/comments", client, object: TypeToken<Comment>() {})
+suspend fun getPostAuthor(client: OkHttpClient, postId: Long): Map<Long, Author> =
+    makeRequest("$BASE_URL/api/slow/authors/$postId", client, object : TypeToken<Map<Long, Author>>() {})
+
+suspend fun getCommentAuthor(client: OkHttpClient, commentId: Long): Author =
+    makeRequest("$BASE_URL/api/slow/comments/$commentId", client, object: TypeToken<Author>() {})
